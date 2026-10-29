@@ -3,9 +3,11 @@ import glob
 # Each analysis lists its outputs here, mirroring get_inputs_<name>() in scripts/inputs.py,
 # for example:
 #   example_results = ["results/example/summary.csv"]
-#   example_figures = ["figures/example/summary.svg"]
+#   example_figures = ["figures/example/summary.svg", "figures/example/summary.png"]
+#   example_docs = ["docs/example.pdf"]
 results_paths = []
 figure_paths = []
+doc_paths = []
 
 # Globbed rather than listed by hand: every package module is an input to every analysis, and
 # an omission here silently stops results being rebuilt when that module changes.
@@ -16,6 +18,7 @@ shared_input_paths = package_paths + ["scripts/inputs.py"]
 rule all:
     input:
         figure_paths,
+        doc_paths,
 
 
 rule results:
@@ -23,7 +26,7 @@ rule results:
         results_paths,
 
 
-# Each analysis gets a pair of rules, for example:
+# Each analysis gets three rules, for example:
 #
 # rule example_results:
 #     input:
@@ -45,3 +48,13 @@ rule results:
 #         example_figures,
 #     shell:
 #         "pixi run python -m scripts.example_plots"
+#
+#
+# rule example_docs:
+#     input:
+#         "docs/example.tex",
+#         "figures/example/summary.png",  # PNGs the document includes, if any
+#     output:
+#         example_docs,
+#     shell:
+#         "pixi run tectonic --outdir docs docs/example.tex"

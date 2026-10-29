@@ -17,6 +17,7 @@ matplotlib = "*"
 numpy = "*"
 pandas = "*"
 scipy = "*"
+scienceplots = "*"
 
 [tool.pixi.pypi-dependencies]
 analysis-template = { path = ".", editable = true }
@@ -28,6 +29,7 @@ pandas-stubs = "*"
 pytest = "*"
 snakemake = "*"
 ty = "*"
+tectonic = "*"
 
 [tool.pixi.environments]
 default = { features = ["dev"] }

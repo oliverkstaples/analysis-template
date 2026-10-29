@@ -2,7 +2,8 @@
 
 How to lay out a research analysis repo so that one command reproduces every result and
 figure. It follows the structure of `idm-demo-repo`: a library package in `src/`, analysis
-and plotting script pairs in `scripts/`, and a Snakemake workflow joining them up.
+and plotting script pairs in `scripts/`, a LaTeX document of each analysis's mathematics in
+`docs/`, and a Snakemake workflow joining them up.
 
 Placeholders: `<pkg>` is the library package (for example `pmo`), and `<name>` is one
 analysis (for example `outbreak_risk`). In the code skeletons, the analysis is called
@@ -21,7 +22,10 @@ scripts/            # a package at the repo root, not under src/
   __init__.py
   inputs.py         #   get_inputs_<name>() for every analysis
   <name>.py         #   heavy compute → results/<name>/*.csv
-  <name>_plots.py   #   reads those CSVs → figures/<name>/*.svg
+  <name>_plots.py   #   reads those CSVs → figures/<name>/*.svg and *.png
+docs/               # the mathematics of each analysis
+  <name>.tex        #   model, likelihood, estimators, plotted quantities
+  <name>.pdf        #   built from <name>.tex by Snakemake (committed)
 tests/              # top-level pytest suite
   conftest.py       #   shared fixtures
   test_<module>.py  #   one per package module
@@ -171,11 +175,15 @@ def get_inputs_example() -> dict:
             "posterior": results_dir / "posterior.csv",
             "summary": results_dir / "summary.csv",
         },
-        "fig_paths": {"posterior": FIGURES_DIR / "example" / "posterior.svg"},
+        # Figure paths have no suffix: each figure is saved as both .svg and .png.
+        "fig_paths": {"posterior": FIGURES_DIR / "example" / "posterior"},
     }
 ```
 
 ### `scripts/<name>.py`: the compute
+
+The analysis script never imports scienceplots or sets a plot style; that belongs only in
+the plot script.
 
 ```python
 """Fit the SEIR model to the case data and summarise the posterior."""
@@ -221,12 +229,24 @@ if __name__ == "__main__":
 ### `scripts/<name>_plots.py`: the figures
 
 ```python
-"""Plot the posterior of the SEIR model parameters."""
+"""Plot the posterior of the SEIR model parameters (maths in docs/example.tex)."""
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
+import scienceplots  # noqa: F401
 
 from scripts.inputs import get_inputs_example
+
+plt.style.use(["science", "notebook", "no-latex"])
+mpl.rcParams.update({
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "xtick.top": False,
+    "ytick.right": False,
+    "xtick.minor.visible": False,
+    "ytick.minor.visible": True,
+})
 
 _COLOURS = {"beta": "#0072BD", "gamma": "#D95319"}
 
@@ -242,7 +262,8 @@ def make_plots() -> None:
 
     path = inputs["fig_paths"]["posterior"]
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path)
+    for suffix in (".svg", ".png"):
+        fig.savefig(path.with_suffix(suffix), dpi=300)
     plt.close(fig)
 
 
@@ -258,16 +279,64 @@ if __name__ == "__main__":
   figure without rerunning the fit.
 - A helper that does a general task (not one analysis's step) and is used across scripts
   moves into the package. Don't factor out a one-liner just because it repeats.
-- Outputs go to `results/<name>/<output>.csv` and `figures/<name>/<output>.svg`.
+- Outputs go to `results/<name>/<output>.csv` and `figures/<name>/<output>.{svg,png}`. Every
+  figure is saved as both SVG and PNG (300 dpi); the LaTeX documents use the PNGs.
+- **Plot scripts set the scienceplots style** at the top, after the imports, exactly as in the
+  skeleton above. The analysis script never sets it. Keep the style's default font sizes:
+  don't set `fontsize`, `labelsize` or font-size rcParams.
+- **Scripts don't explain the maths.** No markdown cells (`# %% [markdown]`), long docstrings
+  or comment blocks deriving equations; these go in `docs/<name>.tex` (section 4), and a
+  short docstring points there.
 - If paper figures are put together from per-analysis panels, figure numbers appear only in
   that compile script and the Snakefile, since anywhere else they go stale when figures are
   renumbered.
 
-## 4. The Snakefile
+## 4. The maths documents (`docs/`)
+
+Every analysis comes with a LaTeX document, `docs/<name>.tex`, setting out the mathematics
+behind its results and figures: the model, likelihood, priors, estimators and any derived
+quantities that are plotted. It replaces the explanatory markdown a notebook would have.
+
+- **Accurate to the code.** Notation and parameter names match the code, and the equations
+  describe what the code computes. Update the document in the same change as the code.
+- **Figures are included as PNGs**, by paths relative to the `.tex` file.
+- **Built by Snakemake** into `docs/<name>.pdf` with tectonic (a self-contained LaTeX engine
+  installed by pixi; the first build downloads the LaTeX packages it needs). Never build the
+  PDF by hand. The PDF is committed, like `results/` and `figures/`.
+
+```latex
+% docs/example.tex
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{graphicx}
+
+\title{Example: SEIR model fit}
+\begin{document}
+\maketitle
+
+\section{Model}
+With transmission rate $\beta$ and recovery rate $\gamma$ (\texttt{beta}, \texttt{gamma} in
+the code),
+\begin{align}
+  \frac{dS}{dt} &= -\beta S I, &
+  \frac{dI}{dt} &= \beta S I - \gamma I.
+\end{align}
+
+\section{Posterior}
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{../figures/example/posterior.png}
+  \caption{Posterior draws of $\beta$ and $\gamma$.}
+\end{figure}
+
+\end{document}
+```
+
+## 5. The Snakefile
 
 The Snakefile is the only way to reproduce the results. Don't add separate reproduction
-commands; add them as rules. Every rule lists all the package modules (by glob) as inputs, so
-a change to shared code triggers a rebuild.
+commands; add them as rules. Every results and plot rule lists all the package modules (by
+glob) as inputs, so a change to shared code triggers a rebuild.
 
 ```python
 import glob
@@ -276,10 +345,12 @@ example_results = [
     "results/example/posterior.csv",
     "results/example/summary.csv",
 ]
-example_figures = ["figures/example/posterior.svg"]
+example_figures = ["figures/example/posterior.svg", "figures/example/posterior.png"]
+example_docs = ["docs/example.pdf"]
 
 results_paths = example_results
 figure_paths = example_figures
+doc_paths = example_docs
 
 # Globbed so that no module can be left out by mistake.
 package_paths = sorted(glob.glob("src/<pkg>/*.py"))
@@ -289,6 +360,7 @@ shared_input_paths = package_paths + ["scripts/inputs.py"]
 rule all:
     input:
         figure_paths,
+        doc_paths,
 
 
 rule results:
@@ -316,12 +388,25 @@ rule example_plots:
         example_figures,
     shell:
         "pixi run python -m scripts.example_plots"
+
+
+rule example_docs:
+    input:
+        "docs/example.tex",
+        "figures/example/posterior.png",  # the PNGs the document includes
+    output:
+        example_docs,
+    shell:
+        "pixi run tectonic --outdir docs docs/example.tex"
 ```
+
+Each analysis has three rules: `<name>_results`, `<name>_plots` and `<name>_docs`. `all`
+builds every figure and document; `results` builds only the results files.
 
 If one analysis needs another's results (for example a cleaned dataset or a fitted
 posterior), list those results files as inputs of its rule.
 
-## 5. Tests
+## 6. Tests
 
 - A top-level `tests/` folder, with `[tool.pytest.ini_options] testpaths = ["tests"]` and
   `pythonpath = ["."]` so tests can import `scripts` too.
@@ -334,7 +419,7 @@ posterior), list those results files as inputs of its rule.
   in the data cleaning.
 - Change tests when the code improves. Don't bend the code to avoid touching a test.
 
-## 6. Tooling and commands
+## 7. Tooling and commands
 
 | Task | Command |
 |------|---------|
@@ -347,14 +432,15 @@ posterior), list those results files as inputs of its rule.
 | What would rerun | `pixi run snakemake -n` |
 
 - Dependencies are declared in `pyproject.toml`, from conda-forge first (`pypi-dependencies`
-  only when needed). Dev-only tools go in the `dev` feature. Commit `pixi.lock`.
+  only when needed). Dev-only tools go in the `dev` feature. Commit `pixi.lock`. Plotting
+  uses `scienceplots`; the pipeline tools `snakemake` and `tectonic` are in `dev`.
 - The only ruff config is import sorting (`extend-select = ["I"]`). Leave ruff and ty at their
   defaults otherwise.
 - Run format, lint and typecheck after every code change.
 - An `AGENTS.md` (with `CLAUDE.md` containing `@AGENTS.md`) records these conventions and
   describes the analyses as they currently exist.
 
-## 7. Converting a notebook
+## 8. Converting a notebook
 
 1. **Tag each cell** as one of:
    - reusable logic (loading, cleaning, models, likelihoods, simulators, fitting): goes in
@@ -363,10 +449,13 @@ posterior), list those results files as inputs of its rule.
      `get_inputs_<name>()`
    - the compute that produces numbers: goes in `scripts/<name>.py`, written to CSV
    - figures: go in `scripts/<name>_plots.py`, read from the CSV
+   - markdown explaining the maths: goes in `docs/<name>.tex`, checked against what the code
+     computes
 2. **Find duplicates across notebooks.** Code copied between notebooks (or between an existing
    `*_lib.py` and the notebooks) goes into the package once.
 3. **Port one notebook all the way through** before starting another: package code with
-   tests, `get_inputs_<name>()`, the script pair, and the two Snakemake rules.
+   tests, `get_inputs_<name>()`, the script pair, `docs/<name>.tex`, and the three Snakemake
+   rules.
 4. **Check the outputs against the notebook**: same numbers (to Monte Carlo error, with a
    fixed seed) and the same figures.
 5. **Turn shared upstream steps** (for example a cleaned dataset used by several analyses)
