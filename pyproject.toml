@@ -34,6 +34,11 @@ tectonic = "*"
 [tool.pixi.environments]
 default = { features = ["dev"] }
 
+# A fixed timestamp (1980-01-01) that matplotlib and tectonic write into SVG and PDF files in
+# place of the build time, so rebuilding unchanged outputs gives byte-identical files.
+[tool.pixi.activation.env]
+SOURCE_DATE_EPOCH = "315532800"
+
 [tool.pixi.feature.dev.tasks]
 lint = "ruff check"
 format = "ruff check --select I --fix && ruff format"

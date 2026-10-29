@@ -10,8 +10,9 @@ figure_paths = []
 doc_paths = []
 
 # Globbed rather than listed by hand: every package module is an input to every analysis, and
-# an omission here silently stops results being rebuilt when that module changes.
-package_paths = sorted(glob.glob("src/analysis_template/*.py"))
+# an omission here silently stops results being rebuilt when that module changes. Recursive,
+# so modules in subpackages are included too.
+package_paths = sorted(glob.glob("src/analysis_template/**/*.py", recursive=True))
 shared_input_paths = package_paths + ["scripts/inputs.py"]
 
 
@@ -54,6 +55,7 @@ rule results:
 #     input:
 #         "docs/example.tex",
 #         "figures/example/summary.png",  # PNGs the document includes, if any
+#         # docs/example.tex should set \date{} or a fixed date, not the build date
 #     output:
 #         example_docs,
 #     shell:

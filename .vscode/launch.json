@@ -5,10 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File with Arguments",
+            // Scripts must run as modules from the repo root (see AGENTS.md): running
+            // scripts/<name>.py by path fails on `from scripts.inputs import ...`.
+            "name": "Python Debugger: Current Script as Module, with Arguments",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "module": "scripts.${fileBasenameNoExtension}",
+            "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
             "args": "${command:pickArgs}"
         }

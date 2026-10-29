@@ -41,13 +41,15 @@ commands** — wire them in as rules.
 - `all` (default) builds every figure and doc PDF; `results` builds every results file only.
 - Each analysis gets a `<name>_results` rule running `pixi run python -m scripts.<name> -r` and a
   `<name>_plots` rule running `pixi run python -m scripts.<name>_plots`.
-- Every results and plot rule lists `shared_input_paths` (all package modules, globbed) plus its own script(s),
-  data files and upstream results as inputs, so a change to shared code triggers a rebuild.
-  `shared_input_paths` also includes `scripts/inputs.py`.
+- Every results and plot rule lists `shared_input_paths` (every `.py` file in the package,
+  globbed recursively) plus its own script(s), data files and upstream results as inputs, so a
+  change to shared code triggers a rebuild. `shared_input_paths` also includes
+  `scripts/inputs.py`.
 - Each analysis also gets a `<name>_docs` rule that builds `docs/<name>.pdf` from
   `docs/<name>.tex`, listing the `.tex` file and any figures it includes as inputs. Documents
   include the PNG versions of figures, by paths relative to the `.tex` file
-  (`\includegraphics{../figures/<name>/<output>.png}`). Never build the PDFs by hand.
+  (`\includegraphics{../figures/<name>/<output>.png}`). Never build the PDFs by hand. Give
+  each document `\date{}` or a fixed date: the default, `\today`, is the build date.
 - Add each analysis's output paths to the `results_paths` / `figure_paths` / `doc_paths`
   aggregates; `all` builds the PDFs as well as the figures.
 
@@ -78,11 +80,13 @@ Every analysis is a **script pair**: `scripts/<name>.py` does the heavy compute,
       "ytick.right": False,
       "xtick.minor.visible": False,
       "ytick.minor.visible": True,
+      "svg.hashsalt": "analysis-template",  # fixed SVG element IDs (see Tooling)
   })
   ```
 
   Keep the style's default font sizes: don't set `fontsize`, `labelsize` or font-size
-  rcParams.
+  rcParams. Build each figure path as `path.with_name(path.name + suffix)`, not
+  `path.with_suffix(suffix)`, which truncates names containing a dot (`sd_0.5` → `sd_0.png`).
 - Each script has a single public entry point (`run_analyses` / `make_plots`) at the top; every
   other function is `_private` and sits below it. A helper that is a general reusable task (not
   one analysis's step) and is used across scripts belongs in the package instead. Don't factor
@@ -124,8 +128,12 @@ None yet.
 | Format | `pixi run format` (ruff import sort + format) |
 | Lint | `pixi run lint` (ruff check) |
 | Type check | `pixi run typecheck` (ty check) |
-| Full reproduction | `pixi run snakemake --cores N` |
+| Full reproduction | `pixi run snakemake --cores N --forceall` |
+| Rebuild what changed | `pixi run snakemake --cores N` |
 | Results only | `pixi run snakemake --cores N results` |
+
+Without `--forceall`, Snakemake reruns only jobs whose inputs look newer than their outputs
+(by file modification time), so it is an update, not a full reproduction.
 
 Run format, lint and typecheck after code changes.
 
@@ -136,9 +144,12 @@ Run format, lint and typecheck after code changes.
   purpose, so don't add other config.
 - New dependencies go in `pyproject.toml` (conda-forge first, `pypi-dependencies` only if
   needed; dev-only tools in the `dev` feature). Commit the updated `pixi.lock`.
-- matplotlib SVG output is non-deterministic (run-varying IDs, float noise), so `git diff
-  figures/` can't show whether a plotting change preserved the output. Check by running the
-  plot script and looking at the figure.
+- Generated files are byte-for-byte reproducible on a given platform, so `git diff results/
+  figures/ docs/` shows whether a change altered the outputs. Two settings make this so:
+  `SOURCE_DATE_EPOCH` (set in `[tool.pixi.activation.env]`), which matplotlib and tectonic
+  write into SVG and PDF files instead of the build time, and the fixed `svg.hashsalt` in the
+  plot style, without which matplotlib gives SVG elements random IDs on every run. Keep both.
+  Outputs built on another OS may still differ slightly (fonts, floating point).
 
 ## Repo
 

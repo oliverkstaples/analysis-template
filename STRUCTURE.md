@@ -246,6 +246,7 @@ mpl.rcParams.update({
     "ytick.right": False,
     "xtick.minor.visible": False,
     "ytick.minor.visible": True,
+    "svg.hashsalt": "analysis-template",  # fixed SVG element IDs, so rebuilds are identical
 })
 
 _COLOURS = {"beta": "#0072BD", "gamma": "#D95319"}
@@ -263,7 +264,8 @@ def make_plots() -> None:
     path = inputs["fig_paths"]["posterior"]
     path.parent.mkdir(parents=True, exist_ok=True)
     for suffix in (".svg", ".png"):
-        fig.savefig(path.with_suffix(suffix), dpi=300)
+        # Not path.with_suffix(): it would cut a name like "sd_0.5" to "sd_0".
+        fig.savefig(path.with_name(path.name + suffix), dpi=300)
     plt.close(fig)
 
 
@@ -303,6 +305,9 @@ quantities that are plotted. It replaces the explanatory markdown a notebook wou
 - **Built by Snakemake** into `docs/<name>.pdf` with tectonic (a self-contained LaTeX engine
   installed by pixi; the first build downloads the LaTeX packages it needs). Never build the
   PDF by hand. The PDF is committed, like `results/` and `figures/`.
+- **Reproducible PDFs.** pixi sets `SOURCE_DATE_EPOCH`, which tectonic writes into the PDF
+  instead of the build time, so rebuilding an unchanged document gives an identical file.
+  Give the document `\date{}` or a fixed date, since `\today` would print that fixed epoch.
 
 ```latex
 % docs/example.tex
@@ -311,6 +316,7 @@ quantities that are plotted. It replaces the explanatory markdown a notebook wou
 \usepackage{graphicx}
 
 \title{Example: SEIR model fit}
+\date{}  % the default, \today, would change on every rebuild
 \begin{document}
 \maketitle
 
@@ -335,8 +341,9 @@ the code),
 ## 5. The Snakefile
 
 The Snakefile is the only way to reproduce the results. Don't add separate reproduction
-commands; add them as rules. Every results and plot rule lists all the package modules (by
-glob) as inputs, so a change to shared code triggers a rebuild.
+commands; add them as rules. Every results and plot rule lists every `.py` file in the package
+(globbed recursively, so subpackages count too) as inputs, so a change to shared code triggers
+a rebuild.
 
 ```python
 import glob
@@ -353,7 +360,7 @@ figure_paths = example_figures
 doc_paths = example_docs
 
 # Globbed so that no module can be left out by mistake.
-package_paths = sorted(glob.glob("src/<pkg>/*.py"))
+package_paths = sorted(glob.glob("src/<pkg>/**/*.py", recursive=True))
 shared_input_paths = package_paths + ["scripts/inputs.py"]
 
 
@@ -427,9 +434,20 @@ posterior), list those results files as inputs of its rule.
 | Format | `pixi run format` (ruff import sort + format) |
 | Lint | `pixi run lint` (ruff check) |
 | Type check | `pixi run typecheck` (ty check) |
-| Full reproduction | `pixi run snakemake --cores N` |
+| Full reproduction | `pixi run snakemake --cores N --forceall` |
+| Rebuild what changed | `pixi run snakemake --cores N` |
 | Results only | `pixi run snakemake --cores N results` |
 | What would rerun | `pixi run snakemake -n` |
+
+Without `--forceall`, Snakemake reruns only the jobs whose inputs have newer modification
+times than their outputs. That is the right way to update after an edit, but it doesn't
+reproduce everything from scratch.
+
+- **Outputs are byte-for-byte reproducible** on a given platform, so `git diff` shows whether a
+  change altered any result, figure or PDF. This relies on `SOURCE_DATE_EPOCH` in
+  `[tool.pixi.activation.env]` (a fixed timestamp that matplotlib and tectonic write in place
+  of the build time) and the fixed `svg.hashsalt` in the plot style (otherwise SVG element IDs
+  are random).
 
 - Dependencies are declared in `pyproject.toml`, from conda-forge first (`pypi-dependencies`
   only when needed). Dev-only tools go in the `dev` feature. Commit `pixi.lock`. Plotting
